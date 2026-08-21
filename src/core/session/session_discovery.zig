@@ -71,8 +71,17 @@ pub const WritableCandidate = struct {
     id: []u8,
     workspace_root: []u8,
     updated_at_ms: i64,
+    history_len: usize,
+    has_durable_activity: bool,
+    has_managed_children: bool,
     storage: CandidateStorage,
     projection_state: ProjectionState,
+
+    pub fn isResumable(self: WritableCandidate) bool {
+        return self.history_len != 0 or
+            self.has_durable_activity or
+            self.has_managed_children;
+    }
 
     pub fn deinit(self: *WritableCandidate, alloc: Allocator) void {
         alloc.free(self.id);
@@ -602,6 +611,7 @@ pub fn classifySchemaV3Candidate(
             .updated_at_ms = manifest.updated_at_ms,
             .conversation_language = manifest.conversation_language,
             .history_len = history_len,
+            .has_durable_activity = manifest.last_event_seq > 1,
         },
         .storage = .schema_v3,
         .projection_state = projection_state,
@@ -682,6 +692,9 @@ pub fn dupeWritableCandidate(
     id_source: []const u8,
     workspace_source: []const u8,
     updated_at_ms: i64,
+    history_len: usize,
+    has_durable_activity: bool,
+    has_managed_children: bool,
     storage: CandidateStorage,
     projection_state: ProjectionState,
 ) !WritableCandidate {
@@ -692,6 +705,9 @@ pub fn dupeWritableCandidate(
         .id = id,
         .workspace_root = workspace_root,
         .updated_at_ms = updated_at_ms,
+        .history_len = history_len,
+        .has_durable_activity = has_durable_activity,
+        .has_managed_children = has_managed_children,
         .storage = storage,
         .projection_state = projection_state,
     };
