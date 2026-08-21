@@ -864,6 +864,27 @@ pub const Store = struct {
             );
             return .retained;
         }
+        const has_managed_children = self.sessionHasManagedChildrenConservative(
+            alloc,
+            loaded.active_id,
+        ) catch |err| {
+            loaded.deinit(alloc);
+            debug_trace.logf(
+                "session",
+                "event=pristine_session_discard disposition=retained reason=child_probe_failed err={s}",
+                .{@errorName(err)},
+            );
+            return .retained;
+        };
+        if (has_managed_children) {
+            loaded.deinit(alloc);
+            debug_trace.logf(
+                "session",
+                "event=pristine_session_discard disposition=retained reason=managed_children",
+                .{},
+            );
+            return .retained;
+        }
         return self.deleteWriterOwnedSession(
             alloc,
             loaded,
@@ -5639,6 +5660,20 @@ fn writeSummaryFixture(
     alloc.free(path);
 }
 
+fn writePristineSummaryFixture(
+    alloc: Allocator,
+    store: Store,
+    id: []const u8,
+    workspace_root: []const u8,
+    updated_at_ms: i64,
+) !void {
+    var state = try testDurableState(alloc, id, workspace_root);
+    defer state.deinit(alloc);
+    state.updated_at_ms = updated_at_ms;
+    var writer = try store.startWritableSession(alloc, state);
+    writer.deinit(alloc);
+}
+
 fn writeWritableHistoryFixture(
     alloc: Allocator,
     store: Store,
@@ -6718,6 +6753,42 @@ test "discarding a pristine started session permits usage checkpoints" {
         error.SessionNotFound,
         ctx.store.loadReadOnly(alloc, state.id),
     );
+}
+
+test "pristine discard retains a zero-turn parent with managed children" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var ctx = try initTempStore(alloc, &tmp);
+    defer ctx.deinit(alloc);
+
+    var state = try testDurableState(alloc, "managed-parent", ctx.workspace);
+    defer state.deinit(alloc);
+    var writable = try ctx.store.startWritableSession(alloc, state);
+    {
+        const header_bytes = try relationship_index_codec.encodeHeader(alloc, .{
+            .high_watermark = 1,
+            .active_count = 1,
+        });
+        defer alloc.free(header_bytes);
+        var capability = try writable.childCapability();
+        var header_file = try capability.createExclusiveFile(
+            alloc,
+            .subagent_control,
+            session_child_store.subagent_relationship_index_file,
+        );
+        defer header_file.deinit();
+        try header_file.writeAll(header_bytes);
+        try header_file.sync();
+    }
+
+    try std.testing.expectEqual(
+        PristineDiscardDisposition.retained,
+        ctx.store.discardPristineStartedSession(alloc, &writable),
+    );
+    var retained = try ctx.store.loadReadOnly(alloc, state.id);
+    defer retained.deinit(alloc);
+    try std.testing.expectEqual(@as(usize, 0), retained.history.len);
 }
 
 test "pristine discard retains active recovery and permits cleared recovery" {
@@ -11700,7 +11771,6 @@ test "resumable session pages filter before paging and preserve continuation ord
         .{ "tie-a", 1000, 1 },
         .{ "tie-b", 1000, 1 },
         .{ "current", 2000, 1 },
-        .{ "empty", 1500, 0 },
     }) |fixture| {
         const body = try std.fmt.allocPrint(
             alloc,
@@ -11711,6 +11781,7 @@ test "resumable session pages filter before paging and preserve continuation ord
         const path = try writeSessionFixture(alloc, ctx.store, fixture[0], body);
         defer alloc.free(path);
     }
+    try writePristineSummaryFixture(alloc, ctx.store, "empty", "/tmp/ws", 1500);
 
     var first = try ctx.store.listResumablePage(alloc, "current", null);
     defer first.deinit(alloc);
@@ -11767,7 +11838,7 @@ test "workspace resumable pages filter workspace before paging and preserve cont
         try writeSummaryFixture(alloc, ctx.store, id, ctx.workspace, 100 + @as(i64, @intCast(index)), 1);
     }
     try writeSummaryFixture(alloc, ctx.store, "workspace-a-current", ctx.workspace, 2000, 1);
-    try writeSummaryFixture(alloc, ctx.store, "workspace-a-empty", ctx.workspace, 1500, 0);
+    try writePristineSummaryFixture(alloc, ctx.store, "workspace-a-empty", ctx.workspace, 1500);
     try writeSummaryFixture(alloc, ctx.store, "missing-workspace", null, 1600, 1);
 
     var first = try ctx.store.listResumableWorkspacePage(alloc, "workspace-a-current", null);
