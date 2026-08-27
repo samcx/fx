@@ -465,6 +465,21 @@ function latestProjectionWindow(tracePath: string): ProjectionWindowTrace {
   return latest;
 }
 
+async function waitForScrollableProjection(
+  tracePath: string,
+): Promise<ProjectionWindowTrace> {
+  const deadline = Date.now() + TIMEOUT;
+  let latest = latestProjectionWindow(tracePath);
+  while (Date.now() < deadline) {
+    latest = latestProjectionWindow(tracePath);
+    if (latest.offset > 0) return latest;
+    await sleep(10);
+  }
+  throw new Error(
+    `Timed out waiting for a scrollable Ctrl-O page. Last offset: ${latest.offset}.`,
+  );
+}
+
 async function waitForScrolledViewport(
   tracePath: string,
   startByte: number,
@@ -612,7 +627,7 @@ async function thrashViewer(
       tapePath,
     );
 
-    const scrollWindow = latestProjectionWindow(tracePath);
+    const scrollWindow = await waitForScrollableProjection(tracePath);
     const scrollTraceStart = traceSize(tracePath);
     await timeTransition(
       metrics,
@@ -909,7 +924,7 @@ async function runStress(config: StressConfig): Promise<StressRoot> {
 
     await session.sendKeys("C-o");
     await waitForMode(session, "full", DRAFT);
-    const burstScrollWindow = latestProjectionWindow(paths.tracePath);
+    const burstScrollWindow = await waitForScrollableProjection(paths.tracePath);
     const burstScrollTraceStart = traceSize(paths.tracePath);
     const burstToggleStarted = performance.now();
     session.sendRepeatedKeyThenImmediate(

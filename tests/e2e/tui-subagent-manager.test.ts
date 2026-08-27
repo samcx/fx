@@ -3730,6 +3730,7 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
       const heldStream = controlledTextResponse("CHECKPOINT2_PARENT_FOLLOWUP_STREAM");
       let releaseChildApproval!: (response: Response) => void;
       let childApprovalReleased = false;
+      let childApprovalRequestStarted = false;
       const childApprovalResponse = new Promise<Response>((resolve) => {
         releaseChildApproval = (response) => {
           childApprovalReleased = true;
@@ -3754,6 +3755,7 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
           return fakeGatewayFinalText("CHECKPOINT2_PARENT_SEND_COMPLETE");
         }
         if (body.includes(childPrompt)) {
+          childApprovalRequestStarted = true;
           return childApprovalResponse;
         }
         if (body.includes(parentMessage)) return heldStream.response;
@@ -3847,11 +3849,12 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
         heldStream.release("CHECKPOINT2_PARENT_FOLLOWUP_COMPLETE");
         const childApprovalRequestStartedAt = Date.now();
         while (
-          !gateway.requests.some((request) => request.body.includes(childPrompt)) &&
+          !childApprovalRequestStarted &&
           Date.now() - childApprovalRequestStartedAt < TIMEOUT
         ) {
           await Bun.sleep(25);
         }
+        expect(childApprovalRequestStarted).toBe(true);
         expect(gateway.requests.some((request) => request.body.includes(childPrompt))).toBe(true);
         await active.sendKeys("C-o");
         await active.waitForText("Full detail · ctrl o close", TIMEOUT);

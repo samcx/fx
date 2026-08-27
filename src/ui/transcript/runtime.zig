@@ -896,6 +896,33 @@ test "full transcript loading projection preserves restored viewport intent" {
     try std.testing.expect(!runtime.full_transcript.follow_tail);
 }
 
+test "full transcript page navigation preserves tail intent while the page loads" {
+    var runtime = TranscriptRuntime{
+        .layout = .{
+            .rows = 12,
+            .cols = 60,
+            .content_bottom = 8,
+            .divider_top_row = 9,
+            .input_row = 10,
+            .divider_bottom_row = 11,
+            .hint_row = 12,
+        },
+        .full_transcript = .{ .depth = .full },
+        .full_transcript_page_request = .{
+            .generation = 1,
+            .content_revision = 0,
+            .cols = 60,
+            .anchor = .tail,
+        },
+    };
+    defer runtime.deinit(std.testing.allocator);
+
+    runtime.scrollFullTranscript(.up, .page);
+
+    try std.testing.expect(runtime.full_transcript.follow_tail);
+    try std.testing.expectEqual(@as(u32, 0), runtime.full_transcript.scroll_rows);
+}
+
 test "opening the full transcript leaves compact command projection unchanged" {
     const alloc = std.testing.allocator;
     var runtime = TranscriptRuntime{ .layout = .{
@@ -6493,6 +6520,16 @@ pub const TranscriptRuntime = struct {
         direction: input_action.MouseWheel,
         unit: FullTranscriptScrollUnit,
     ) void {
+        if (self.full_transcript_page_request != null and
+            self.installedFullTranscriptPageProjection() == null)
+        {
+            debug_trace.logf(
+                "full_transcript_cache",
+                "scroll_ignored reason=page_loading direction={s} unit={s}",
+                .{ @tagName(direction), @tagName(unit) },
+            );
+            return;
+        }
         const rows = switch (unit) {
             .wheel => full_transcript_wheel_rows,
             .page => self.fullTranscriptPageRows(),
@@ -9593,23 +9630,27 @@ pub const TranscriptRuntime = struct {
         std.debug.assert(self.full_transcript.depth == .full);
 
         try self.ensureFullTranscriptPageLoad(capability, full_diff_resolver);
-        if (self.full_transcript_page_request) |request| {
-            if (self.full_transcript_page_source) |*source| {
-                if (full_transcript_page.sameSurface(request, source.request)) {
-                    if (self.full_transcript_page_projection) |*projection| {
-                        return projection;
-                    }
-                }
-            }
-            if (self.full_transcript_page_key) |key| {
-                if (full_transcript_page.accepts(request, key)) {
-                    if (self.full_transcript_page_projection) |*projection| {
-                        return projection;
-                    }
-                }
+        if (self.installedFullTranscriptPageProjection()) |projection| return projection;
+        return try self.fullTranscriptLoadingProjection(alloc);
+    }
+
+    fn installedFullTranscriptPageProjection(
+        self: *TranscriptRuntime,
+    ) ?*full_transcript_screen.Projection {
+        const request = self.full_transcript_page_request orelse return null;
+        const projection = if (self.full_transcript_page_projection) |*value|
+            value
+        else
+            return null;
+        if (self.full_transcript_page_source) |*source| {
+            if (full_transcript_page.sameSurface(request, source.request)) {
+                return projection;
             }
         }
-        return try self.fullTranscriptLoadingProjection(alloc);
+        if (self.full_transcript_page_key) |key| {
+            if (full_transcript_page.accepts(request, key)) return projection;
+        }
+        return null;
     }
 
     pub fn preparedFullTranscriptPageCapability(
