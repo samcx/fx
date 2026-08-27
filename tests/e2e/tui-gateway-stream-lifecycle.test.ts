@@ -6147,22 +6147,20 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
       await session.resizeWindow(80, 24);
       await session.waitForText("● 3 tool calls · 3 commands", TIMEOUT);
       await session.sendKeys("C-o");
-      const review = await session.waitForText(finalText, TIMEOUT);
-      expect(review).toContain(
+      const fullAtTail = await session.waitForText(finalText, TIMEOUT);
+      expect(fullAtTail).toContain(
         "├ Ran cd ./vercel/packages/cli/test/fixtures/unit/commands/git/connect/unlink",
       );
-      expect(review).toContain(`├ Ran ${firstDisplayCommand}`);
-      expect(review).not.toContain(`Ran ${firstCommand}`);
-      expect(review).toContain("● 3 tool calls · 3 commands");
-      expect(withoutWorkspaceStatusline(review)).not.toContain(workspace);
+      expect(fullAtTail).toContain(`└ Ran ${thirdCommand}`);
+      expect(withoutWorkspaceStatusline(fullAtTail)).not.toContain(workspace);
 
-      await session.sendKeys("Right");
-      const full = await session.waitForText("Full detail · ctrl o close", TIMEOUT);
-      expect(full).toContain(finalText);
-      await session.sendKeys("PPage");
-      const fullAtSummary = await session.waitForText("● 3 tool calls · 3 commands", TIMEOUT);
-      expect(fullAtSummary).toContain("● 3 tool calls · 3 commands");
-      expect(withoutWorkspaceStatusline(fullAtSummary)).not.toContain(workspace);
+      for (let page = 0; page < 10; page += 1) {
+        await session.sendKeys("PPage");
+      }
+      const fullAtFirst = await session.waitForText(firstDisplayCommand, TIMEOUT);
+      expect(fullAtFirst).toContain(`├ Ran ${firstDisplayCommand}`);
+      expect(fullAtFirst).not.toContain(`Ran ${firstCommand}`);
+      expect(withoutWorkspaceStatusline(fullAtFirst)).not.toContain(workspace);
 
       const trace = readFileSync(tracePath, "utf8");
       for (const callId of [
@@ -7291,10 +7289,13 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
 
       await session.sendKeys("C-o");
       await session.waitForText("Full detail · ctrl o close", TIMEOUT);
-      const reviewEscapes = await session.capturePaneEscapes();
-      expect(reviewEscapes).not.toContain("\x1b[38;5;245m│");
-      expect(reviewEscapes).toContain("│\x1b[38;5;245m  30 output lines");
-      await session.sendKeys("Right");
+      const fullTailEscapes = await session.capturePaneEscapes();
+      expect(fullTailEscapes).not.toContain("\x1b[38;5;245m│");
+      expect(fullTailEscapes).toContain("│\x1b[38;5;245m SECOND_CMD_LINE_30");
+      for (let page = 0; page < 10; page += 1) {
+        await session.sendHexBytes(["1b", "5b", "35", "7e"]);
+      }
+      await session.waitForText("FIRST_CMD_DONE", TIMEOUT);
       for (let page = 0; page < 10; page += 1) {
         await session.sendHexBytes(["1b", "5b", "36", "7e"]);
       }
@@ -7318,9 +7319,6 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
       const stableSecondCommandLine = "SECOND_CMD_LINE_24";
       expect(replayFrames).toContain("FIRST_CMD_DONE");
       expect(replayFrames).toContain(stableSecondCommandLine);
-      expect(replayFrames.indexOf("FIRST_CMD_DONE")).toBeLessThan(
-        replayFrames.indexOf(stableSecondCommandLine),
-      );
       expect(replayFrames).toContain("SECOND_CMD_LINE_30");
       expect(replayFrames).toContain(finalText);
       expect(existsSync(tracePath)).toBe(true);
