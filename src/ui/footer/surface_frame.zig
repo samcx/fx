@@ -2818,7 +2818,7 @@ test "transcript viewer reserves a blank row above its navigation footer" {
     defer shell.deinit(alloc);
 
     var ctx = surfaceTestContext(&input);
-    ctx.transcript_depth = .review;
+    ctx.transcript_depth = .full;
     var review = try measureSurfaceFooter(alloc, &shell, prompt.projection(), ctx);
     defer review.deinit(alloc);
     try std.testing.expectEqual(@as(u16, 1), review.frameLayoutMeasurement().top_gap_rows);

@@ -8002,8 +8002,8 @@ test "child transcript depth survives transient presentation rebuilds" {
         try runtime.handle(alloc, .enter),
     );
     try std.testing.expectEqual(
-        transcript_presentation.Depth.review,
-        try runtime.setChildTranscriptPresentationDepth(alloc, .review),
+        transcript_presentation.Depth.full,
+        try runtime.setChildTranscriptPresentationDepth(alloc, .full),
     );
     try std.testing.expect(runtime.childFullTranscriptRequested());
     try std.testing.expect(runtime.childConversationRuntime() == null);

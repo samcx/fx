@@ -42,6 +42,7 @@ const input_visual_layout = @import("../../ui/input/visual_layout.zig");
 const registered_entities = @import("../input/registered_entities.zig");
 const approval_screen = @import("../../ui/approval_screen.zig");
 const full_transcript_screen = @import("../../ui/full_transcript_screen.zig");
+const session_child_store = @import("../session/session_child_store.zig");
 const render_engine = @import("../../ui/render_engine.zig");
 const build_checkpoint = @import("../../ui/render_engine/build_checkpoint.zig");
 const shell_runtime = @import("../../ui/shell_runtime.zig");
@@ -1854,6 +1855,13 @@ pub fn Runtime(comptime App: type) type {
             defer if (owned_transcript_source) |*source| source.deinit(app.alloc);
             var transcript_source: ?*transcript_runtime.TranscriptPreparationSource = null;
             var full_transcript_projection: ?*full_transcript_screen.Projection = null;
+            var full_transcript_capability: ?*session_child_store.SessionChildCapability = if (comptime @hasDecl(
+                App,
+                "fullTranscriptSidecarCapability",
+            ))
+                app.fullTranscriptSidecarCapability()
+            else
+                null;
             var transcript_transition: ?transcript_runtime.TranscriptTransition = null;
             defer if (transcript_transition) |*transition| transition.deinit(app.alloc);
             var footer_measurement: ?surface_frame.SurfaceFooterMeasurement = null;
@@ -1884,11 +1892,15 @@ pub fn Runtime(comptime App: type) type {
                             app.fullTranscriptDiffResolver()
                         else
                             null;
-                    full_transcript_projection = try presentation_shell.cachedFullTranscriptProjectionInterruptible(
+                    full_transcript_projection = try presentation_shell.preparedFullTranscriptPageProjectionInterruptible(
                         app.alloc,
                         full_diff_resolver,
+                        full_transcript_capability,
                         checkpoint,
                     );
+                    if (presentation_shell.preparedFullTranscriptPageCapability()) |capability| {
+                        full_transcript_capability = capability;
+                    }
                 }
                 footer_measurement = try surface_frame.measureSurfaceFooter(
                     app.alloc,
@@ -2142,15 +2154,11 @@ pub fn Runtime(comptime App: type) type {
                 if (full_transcript_projection) |projection| {
                     const area = footer_frame.paint.transcript_band;
                     if (!area.isEmpty()) {
-                        const capability = if (comptime @hasDecl(App, "fullTranscriptSidecarCapability"))
-                            app.fullTranscriptSidecarCapability()
-                        else
-                            null;
                         const staged = try presentation_shell.prepareFullTranscriptSurfacePaintInterruptible(
                             app.alloc,
                             &app.metrics,
                             projection,
-                            capability,
+                            full_transcript_capability,
                             .{ .top = area.top, .bottom = area.bottom },
                             checkpoint,
                         );
@@ -6531,6 +6539,60 @@ test "core.app_render_runtime lifecycle rewrite recovers normal buffer after fil
     try std.testing.expect(try coordinatorGridContains(app.shell.shadow_vt.?.*, "stream completed"));
 }
 
+test "core.app_render_runtime full transcript opens with a bounded loading frame" {
+    const alloc = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var file = try tmp.dir.createFile(
+        std.testing.io,
+        "full-transcript-loading-frame.log",
+        .{ .read = true },
+    );
+    defer file.close(io_mod.getIo());
+
+    var app = CoordinatorTestApp{
+        .alloc = alloc,
+        .shell = .{
+            .stdout_file = file,
+            .layout = .{
+                .rows = 24,
+                .cols = 96,
+                .content_bottom = 20,
+                .divider_top_row = 21,
+                .input_row = 22,
+                .divider_bottom_row = 23,
+                .hint_row = 24,
+            },
+            .owned_top_row = 1,
+            .viewport_top_row = 1,
+        },
+    };
+    defer app.deinit();
+    try app.selected_model.appendSlice(alloc, "test-model");
+    try app.shell.initBacking(alloc);
+    try app.shell.enableShadowVt(alloc);
+    try app.shell.writeTranscript(
+        alloc,
+        &app.metrics,
+        ("historical transcript row\n" ** 512) ++ "FULL_ASYNC_SENTINEL\n",
+        true,
+    );
+    app.shell.render_requests.request(.first_frame);
+    try Runtime(CoordinatorTestApp).flushRequestedFrame(&app);
+
+    try app_lifecycle.openFullTranscript(app.alloc, &app.terminal, &app.shell, &app.metrics);
+    try Runtime(CoordinatorTestApp).flushRequestedFrame(&app);
+
+    try std.testing.expect(try coordinatorGridContains(
+        app.shell.shadow_vt.?.*,
+        "Preparing full detail",
+    ));
+    try std.testing.expect(!try coordinatorGridContains(
+        app.shell.shadow_vt.?.*,
+        "FULL_ASYNC_SENTINEL",
+    ));
+}
+
 test "core.app_render_runtime changed resized full transcript close preserves primary history without full replay" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -6908,7 +6970,7 @@ test "child approval arrival closes review and full transcript depths before ren
     try debug_trace.configureForTestWithScopes(alloc, trace_path, "full_transcript");
 
     inline for (.{
-        transcript_presentation.Depth.review,
+        transcript_presentation.Depth.full,
         transcript_presentation.Depth.full,
     }) |depth| {
         var app = ChildApprovalReconcileApp{
@@ -6941,7 +7003,7 @@ test "child approval arrival closes review and full transcript depths before ren
     try std.testing.expect(std.mem.find(
         u8,
         trace,
-        "depth_transition from=review to=inline route=child trigger=approval_handoff",
+        "depth_transition from=full to=inline route=child trigger=approval_handoff",
     ) != null);
     try std.testing.expect(std.mem.find(
         u8,

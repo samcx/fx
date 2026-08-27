@@ -901,7 +901,7 @@ pub fn openFullTranscript(
         return error.AlternateScreenAlreadyOwned;
     }
 
-    try setFullTranscriptProjection(alloc, shell, .review);
+    try setFullTranscriptProjection(alloc, shell, .full);
     errdefer {
         if (terminal.fullTranscriptScreenActive()) {
             leaveFullTranscriptScreen(terminal, shell, metrics) catch {};
@@ -960,7 +960,6 @@ pub fn handoffFullTranscriptToApproval(
         "depth_transition from={s} to=inline route=root trigger=approval_handoff",
         .{switch (from) {
             .inline_mode => "inline",
-            .review => "review",
             .full => "full",
         }},
     );
@@ -1783,7 +1782,7 @@ test "full transcript drift recovery is explicit and scoped to lifecycle" {
         .layout = terminal_only_shell.layout,
     };
     defer projection_only_shell.deinit(alloc);
-    try setFullTranscriptProjection(alloc, &projection_only_shell, .review);
+    try setFullTranscriptProjection(alloc, &projection_only_shell, .full);
 
     var projection_only = TerminalState{};
     try std.testing.expectEqual(

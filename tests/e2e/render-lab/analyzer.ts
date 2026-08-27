@@ -1090,8 +1090,8 @@ function hasTranscriptViewerFooter(grid: string[]): boolean {
   for (let row = 0; row + 2 < grid.length; row += 1) {
     const navigation = semanticText(grid[row] ?? "").trim();
     if (
-      navigation !== "┃ Review · ←/→ switch · ctrl o close · PgUp/PgDn scroll · Esc close" &&
-      navigation !== "┃ Full detail · ←/→ switch · ctrl o close · PgUp/PgDn scroll · Esc close"
+      navigation !== "┃ Full detail · ctrl o close · PgUp/PgDn scroll · Esc close" &&
+      navigation !== "┃ Full detail · ctrl o close · PgUp/PgDn scroll · Esc close"
     ) {
       continue;
     }

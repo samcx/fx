@@ -3854,9 +3854,9 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
         }
         expect(gateway.requests.some((request) => request.body.includes(childPrompt))).toBe(true);
         await active.sendKeys("C-o");
-        await active.waitForText("Review · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         await active.sendKeys("Right");
-        await active.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         releaseChildApproval(fakeGatewayToolCall(callId, "terminal", {
           action: "exec",
           timeout_ms: 600_000,
@@ -3879,15 +3879,15 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
         expect(childApproval).toContain("3. No");
         expect(childApproval).toContain("❯ 1. Yes");
         expect(childApproval).not.toContain("APPROVAL_MAIN_COMPOSER");
-        expect(childApproval).not.toContain("Review · ←/→ switch · ctrl o close");
-        expect(childApproval).not.toContain("Full detail · ←/→ switch · ctrl o close");
+        expect(childApproval).not.toContain("Full detail · ctrl o close");
+        expect(childApproval).not.toContain("Full detail · ctrl o close");
 
         await active.sendKeys("C-o");
         await Bun.sleep(100);
         const approvalAfterCtrlO = await active.capturePane();
         expect(approvalAfterCtrlO).toContain("Subagent approval-child needs permission");
-        expect(approvalAfterCtrlO).not.toContain("Review · ←/→ switch · ctrl o close");
-        expect(approvalAfterCtrlO).not.toContain("Full detail · ←/→ switch · ctrl o close");
+        expect(approvalAfterCtrlO).not.toContain("Full detail · ctrl o close");
+        expect(approvalAfterCtrlO).not.toContain("Full detail · ctrl o close");
 
         await active.sendKeys("C-x");
         const mainApproval = await active.waitForPane(
@@ -5306,7 +5306,7 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
           TIMEOUT,
         );
         await active.sendKeys("Right");
-        await active.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         for (let index = 0; index < 5; index += 1) {
           const before = await active.capturePane();
           await active.sendKeys("PageUp");
@@ -5859,17 +5859,17 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
           TIMEOUT,
         );
         await active.sendKeys("C-o");
-        await active.waitForText("Review · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         await active.sendKeys("PageUp");
-        expect(await active.capturePane()).toContain("Review · ←/→ switch · ctrl o close");
+        expect(await active.capturePane()).toContain("Full detail · ctrl o close");
         await active.sendKeys("Escape");
         await active.waitForText("Subagent: approval-second", TIMEOUT);
         await active.sendKeys("C-o");
-        await active.waitForText("Review · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         await active.sendKeys("Right");
-        await active.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         await active.sendKeys("PageDown");
-        expect(await active.capturePane()).toContain("Full detail · ←/→ switch · ctrl o close");
+        expect(await active.capturePane()).toContain("Full detail · ctrl o close");
         await active.sendKeys("C-c");
         await active.waitForPane(
           (pane) =>
@@ -6798,7 +6798,7 @@ describe.skipIf(!tmuxAvailable())("tui: Agents & processes", () => {
         );
         expect(fullChild).not.toContain("Create the live manager fixture.");
         await active.sendKeys("Right");
-        await active.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+        await active.waitForText("Full detail · ctrl o close", TIMEOUT);
         const fullChildGrid = await active.capturePaneGrid();
         expect(fullChildGrid).not.toEqual(settledChildGrid);
         await active.sendHexBytes(["1b", "5b", "35", "7e"]);

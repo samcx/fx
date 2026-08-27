@@ -3397,7 +3397,7 @@ describe.skipIf(SKIP)("tui: slash menu", () => {
         new RegExp(`see "${tracePathPattern}" for details`),
       );
       await session.sendKeys("Right");
-      await session.waitForText("Full detail · ←/→ switch · ctrl o close", 5_000);
+      await session.waitForText("Full detail · ctrl o close", 5_000);
       await session.sendKeys("C-o");
       await session.waitForComposer(5_000);
       const startupDiagnosticCount = fileMarkerCount(

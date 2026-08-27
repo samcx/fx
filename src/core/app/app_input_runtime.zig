@@ -3764,7 +3764,7 @@ fn readTraceFileForTest(alloc: std.mem.Allocator, path: []const u8) ![]u8 {
 fn activateFullTranscriptForRoutingTest(app: *RoutingFakeApp) void {
     app.terminal.alternate_screen_owner = .full_transcript;
     app.terminal.alternate_mouse_tracking_active = true;
-    app.shell.full_transcript = .{ .depth = .review, .follow_tail = true };
+    app.shell.full_transcript = .{ .depth = .full, .follow_tail = true };
 }
 
 fn appendRoutingSessionPickerSummary(
@@ -9443,7 +9443,7 @@ test "app_input_runtime inline scroll actions do not open the transcript viewer"
     }
 }
 
-test "app_input_runtime ctrl-o toggles transcript viewer while arrows switch detail" {
+test "app_input_runtime ctrl-o toggles full transcript while arrows preserve detail" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -9465,7 +9465,7 @@ test "app_input_runtime ctrl-o toggles transcript viewer while arrows switch det
         try std.testing.expect(app.shell.full_transcript.follow_tail);
         try std.testing.expect(app.shell.render_requests.hasReason(.modal));
         try std.testing.expectEqual(
-            transcript_presentation.Depth.review,
+            transcript_presentation.Depth.full,
             app.shell.transcriptPresentationDepth(),
         );
 
@@ -9478,7 +9478,7 @@ test "app_input_runtime ctrl-o toggles transcript viewer while arrows switch det
 
         try feedRoutingBytes(&app, "\x1b[D");
         try std.testing.expectEqual(
-            transcript_presentation.Depth.review,
+            transcript_presentation.Depth.full,
             app.shell.transcriptPresentationDepth(),
         );
 
@@ -9499,7 +9499,7 @@ test "app_input_runtime ctrl-o toggles transcript viewer while arrows switch det
         try std.testing.expectEqualStrings("ab", app.input_runtime.edit_state.input.items);
         try std.testing.expectEqual(@as(usize, 2), app.input_runtime.edit_state.cursor);
         try std.testing.expectEqual(
-            transcript_presentation.Depth.review,
+            transcript_presentation.Depth.full,
             app.shell.transcriptPresentationDepth(),
         );
         try feedRoutingBytes(&app, "\x1b[C");
@@ -9635,7 +9635,7 @@ test "app_input_runtime full transcript rejects ctrl-x manager entry without los
     try std.testing.expectEqualStrings("ab", app.input_runtime.edit_state.input.items);
     try std.testing.expectEqual(@as(usize, 2), app.input_runtime.edit_state.cursor);
     try std.testing.expectEqual(
-        transcript_presentation.Depth.review,
+        transcript_presentation.Depth.full,
         app.shell.transcriptPresentationDepth(),
     );
 
@@ -9674,7 +9674,7 @@ test "app_input_runtime full transcript page and wheel keys scroll the projectio
     try std.testing.expectEqual(@as(usize, 0), app.input_runtime.edit_state.input.items.len);
 }
 
-test "app_input_runtime ctrl-o opens review and closes active transcript from each encoding" {
+test "app_input_runtime ctrl-o opens full detail and closes it from each encoding" {
     const alloc = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();

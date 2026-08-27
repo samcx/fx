@@ -1901,6 +1901,19 @@ fn writeSessionExecutionText(writer: *std.Io.Writer, execution: types.ExecutionM
     if (execution.isEmpty()) return;
 
     try writer.writeAll("[execution]\n");
+    if (execution.turn_summary) |summary| {
+        try writer.print(
+            "started_at_ms: {d}\ncompleted_at_ms: {d}\nturn_duration_ms: {d}\nthinking_duration_ms: {d}\ninput_tokens: {d}\noutput_tokens: {d}\n",
+            .{
+                summary.started_at_ms,
+                summary.completed_at_ms,
+                summary.turn_duration_ms,
+                summary.thinking_duration_ms,
+                summary.token_progress.input_tokens,
+                summary.token_progress.output_tokens,
+            },
+        );
+    }
     for (execution.tool_steps) |step| {
         if (step.assistant) |assistant| {
             try writer.writeAll("assistant:\n");
@@ -2786,7 +2799,7 @@ test "core session detail JSON includes assistant execution memory" {
 
     const json = try (SessionDetailSnapshot{ .detail = detail }).renderJson(std.testing.allocator);
     defer std.testing.allocator.free(json);
-    try std.testing.expect(std.mem.find(u8, json, "\"execution\":{\"schema_version\":2") != null);
+    try std.testing.expect(std.mem.find(u8, json, "\"execution\":{\"schema_version\":3") != null);
     try std.testing.expect(std.mem.find(u8, json, "\"name\":\"web_fetch\"") != null);
     try std.testing.expect(std.mem.find(u8, json, "artifact-file.pdf") != null);
     try std.testing.expect(std.mem.find(u8, json, "command_output_replay") == null);

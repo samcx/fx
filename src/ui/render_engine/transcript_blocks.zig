@@ -50,6 +50,7 @@ pub const ToolFallbackDisposition = enum {
 
 pub const ToolDetailRecord = struct {
     entry_id: u32,
+    created_at_ms: i64 = 0,
     tool_name: []u8,
     captured_command: bool = false,
     activity_kind: ?types.ToolActivityKind = null,

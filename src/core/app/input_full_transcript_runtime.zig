@@ -115,7 +115,7 @@ pub fn Runtime(comptime App: type) type {
             const to = from.transition(event);
             if (from == to) return;
             if (from == .inline_mode) {
-                std.debug.assert(to == .review);
+                std.debug.assert(to == .full);
                 if (app.terminal.alternate_screen_owner != .none) return;
                 if (app.approval_prompt.isActive()) return;
                 try app_lifecycle.openFullTranscript(
@@ -343,7 +343,6 @@ pub fn Runtime(comptime App: type) type {
         fn depthName(depth: transcript_presentation.Depth) []const u8 {
             return switch (depth) {
                 .inline_mode => "inline",
-                .review => "review",
                 .full => "full",
             };
         }
@@ -351,7 +350,7 @@ pub fn Runtime(comptime App: type) type {
 }
 
 const ApprovalRoutingSubagents = struct {
-    depth: transcript_presentation.Depth = .review,
+    depth: transcript_presentation.Depth = .full,
     selected_child_id: []const u8 = "child-one",
     approval_child_id: []const u8 = "child-one",
 
@@ -433,7 +432,7 @@ test "full transcript owns raw semantic and remapped ctrl-l" {
         .remapped_byte = 12,
     }));
     try std.testing.expectEqual(
-        transcript_presentation.Depth.review,
+        transcript_presentation.Depth.full,
         app.subagents.depth,
     );
 }
@@ -453,7 +452,7 @@ test "selected child approval owns ctrl-o ahead of transcript depth" {
     );
 
     try std.testing.expectEqual(
-        transcript_presentation.Depth.review,
+        transcript_presentation.Depth.full,
         app.subagents.depth,
     );
     try std.testing.expect(app.approval_prompt.isActive());

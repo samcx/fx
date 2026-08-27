@@ -1237,19 +1237,19 @@ describe("gateway stream lifecycle", () => {
         expect(full).not.toContain("[context]");
         const reviewGrid = await tui.capturePaneGrid();
         const reviewNavigationRow = reviewGrid.findIndex((row) =>
-          row.includes("┃ Review · ←/→ switch · ctrl o close")
+          row.includes("┃ Full detail · ctrl o close")
         );
         expect(reviewNavigationRow).toBeGreaterThan(0);
         expect(reviewGrid[reviewNavigationRow - 1]!.trim()).toBe("");
 
         await tui.sendKeys("Right");
         await tui.waitForPane(
-          (text) => text.includes("Full detail · ←/→ switch · ctrl o close"),
+          (text) => text.includes("Full detail · ctrl o close"),
           15_000,
         );
         const fullGrid = await tui.capturePaneGrid();
         const fullNavigationRow = fullGrid.findIndex((row) =>
-          row.includes("┃ Full detail · ←/→ switch · ctrl o close")
+          row.includes("┃ Full detail · ctrl o close")
         );
         expect(fullNavigationRow).toBeGreaterThan(0);
         expect(fullGrid[fullNavigationRow - 1]!.trim()).toBe("");
@@ -1285,7 +1285,7 @@ describe("gateway stream lifecycle", () => {
         expect(finalFull.split("skill catalog omitted").length - 1).toBe(1);
         await tui.sendKeys("Right");
         await tui.waitForPane(
-          (text) => text.includes("Full detail · ←/→ switch · ctrl o close"),
+          (text) => text.includes("Full detail · ctrl o close"),
           15_000,
         );
         await tui.sendKeys("C-o");
@@ -1408,7 +1408,7 @@ describe("gateway stream lifecycle", () => {
         );
         await tui.sendKeys("Right");
         await tui.waitForPane(
-          (text) => text.includes("Full detail · ←/→ switch · ctrl o close"),
+          (text) => text.includes("Full detail · ctrl o close"),
           15_000,
         );
         await tui.sendKeys("C-o");
@@ -1507,7 +1507,7 @@ describe("gateway stream lifecycle", () => {
         expect(full).not.toContain("[context]");
         await tui.sendKeys("Right");
         await tui.waitForPane(
-          (text) => text.includes("Full detail · ←/→ switch · ctrl o close"),
+          (text) => text.includes("Full detail · ctrl o close"),
           15_000,
         );
         await tui.sendKeys("C-o");

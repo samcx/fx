@@ -1382,7 +1382,7 @@ describe.skipIf(!tmuxAvailable())("tui: file permissions", () => {
       expect(compactScrollback).not.toContain("CTRL_O_FIRST_060");
 
       await session.sendKeys("C-o");
-      await session.waitForText("Review · ←/→ switch · ctrl o close", TIMEOUT);
+      await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       await session.sendKeys("Right");
       for (let page = 0; page < 20; page += 1) {
         await session.sendHexBytes(["1b", "5b", "36", "7e"]);
@@ -1460,13 +1460,13 @@ describe.skipIf(!tmuxAvailable())("tui: file permissions", () => {
       expect(inline).not.toContain("NEW_WRAP_TAIL");
 
       await session.sendKeys("C-o");
-      await session.waitForText("Review · ←/→ switch · ctrl o close", TIMEOUT);
+      await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       const review = await session.capturePane();
       expectDiffSentinelOnRail(review, "OLD_WRAP_TAIL");
       expectDiffSentinelOnRail(review, "NEW_WRAP_TAIL");
 
       await session.sendKeys("Right");
-      await session.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+      await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       const full = await session.capturePane();
       expectDiffSentinelOnRail(full, "OLD_WRAP_TAIL");
       expectDiffSentinelOnRail(full, "NEW_WRAP_TAIL");

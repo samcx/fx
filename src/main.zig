@@ -2720,6 +2720,14 @@ const App = struct {
         if (comptime !host_target.is_wasm) {
             try SessionAppRuntime.pollSessionPicker(self);
         }
+        if (try self.shell.pollFullTranscriptPageLoad()) {
+            RenderAppRuntime.requestActiveSurfaceFrame(self, .modal);
+        }
+        if (self.subagents.childConversationRuntime()) |child| {
+            if (try child.pollFullTranscriptPageLoad()) {
+                RenderAppRuntime.requestActiveSurfaceFrame(self, .modal);
+            }
+        }
         if (!self.terminal_takeover.blocksFxSurface(&self.terminal)) {
             const input_now_ms = io_mod.milliTimestamp();
             InputAppRuntime.expireTerminalInputGestures(self, input_now_ms);

@@ -5981,7 +5981,7 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
       expect(countOccurrences(review, `Ran ${supportedCommand}`)).toBe(1);
 
       await session.sendKeys("Right");
-      const full = await session.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+      const full = await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       expect(full).toContain(`├ Failed ${unsupportedToolName}`);
       expect(full).toContain(`└ Ran ${supportedCommand}`);
       await session.sendKeys("C-o");
@@ -6157,7 +6157,7 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
       expect(withoutWorkspaceStatusline(review)).not.toContain(workspace);
 
       await session.sendKeys("Right");
-      const full = await session.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+      const full = await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       expect(full).toContain(finalText);
       await session.sendKeys("PPage");
       const fullAtSummary = await session.waitForText("● 3 tool calls · 3 commands", TIMEOUT);
@@ -6392,7 +6392,7 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
       await session.sendKeys("C-o");
       await session.waitForText("MINIMAL_GROUP_DETAIL_SIX", TIMEOUT);
       await session.sendKeys("Right");
-      await session.waitForText("Full detail · ←/→ switch · ctrl o close", TIMEOUT);
+      await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       const full = await session.captureFullScrollback();
       expect(full).toContain("MINIMAL_GROUP_DETAIL_ONE");
       expect(full).toContain("├ Read one.txt");
@@ -7290,7 +7290,7 @@ describe.skipIf(!tmuxAvailable())("TUI gateway stream lifecycle", () => {
       );
 
       await session.sendKeys("C-o");
-      await session.waitForText("Review · ←/→ switch · ctrl o close", TIMEOUT);
+      await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       const reviewEscapes = await session.capturePaneEscapes();
       expect(reviewEscapes).not.toContain("\x1b[38;5;245m│");
       expect(reviewEscapes).toContain("│\x1b[38;5;245m  30 output lines");
