@@ -5951,7 +5951,9 @@ test.skipIf(!tmuxAvailable())(
       await waitForSessionPicker(active);
       await active.sendKeys("Escape");
       const afterEscape = await waitForSessionPickerClosed(active);
-      expect(afterEscape).toContain(`● Session resumed: Save ${savedMarkers[0]!}.`);
+      expect(await active.captureFullScrollback()).toContain(
+        `● Session resumed: Save ${savedMarkers[0]!}.`,
+      );
       expect(afterEscape).toContain(savedMarkers[0]!);
       expect(afterEscape).not.toContain(`● Session resumed: Save ${savedMarkers[10]!}.`);
       expect(afterEscape).not.toContain(savedMarkers[10]!);

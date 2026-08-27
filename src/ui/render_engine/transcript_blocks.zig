@@ -220,7 +220,7 @@ fn blockKindForEntry(entry: TranscriptEntry) TranscriptBlockKind {
 
 pub fn isEntryVisibleInCompactPresentation(entry: TranscriptEntry) bool {
     return switch (entry) {
-        .raw_bytes => |raw| raw.class != .turn_summary,
+        .raw_bytes => true,
         .semantic_notice => |notice| notice.visibility == .compact_and_full,
         else => true,
     };
@@ -3603,7 +3603,7 @@ test "rendered entry start line follows identity after raw block normalization" 
     );
 }
 
-test "turn summary stays hidden behind the compact transcript tail" {
+test "turn summary renders as response-like transcript tail" {
     const alloc = std.testing.allocator;
     var entries: std.ArrayList(TranscriptEntry) = .empty;
     defer deinitTestEntries(&entries, alloc);
@@ -3613,15 +3613,8 @@ test "turn summary stays hidden behind the compact transcript tail" {
 
     const out = try renderEntriesToBytes(alloc, entries.items, 80, .{});
     defer alloc.free(out);
-    try std.testing.expectEqualStrings("  assistant text", out);
-    try std.testing.expectEqual(
-        @as(?TranscriptBlockKind, .assistant_turn),
-        compactTailVisibleBlockKind(entries.items),
-    );
-    try std.testing.expectEqual(
-        @as(?TranscriptBlockKind, .turn_summary),
-        tailVisibleBlockKind(entries.items),
-    );
+    try std.testing.expectEqualStrings("  assistant text\n\n\x1b[38;5;245m  2m 10s (15k tokens)\x1b[0m\n", out);
+    try std.testing.expectEqual(@as(?TranscriptBlockKind, .turn_summary), tailVisibleBlockKind(entries.items));
 }
 
 test "renderEntriesToBytes trims trailing raw gap tail for a single block" {

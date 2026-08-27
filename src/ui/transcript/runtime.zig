@@ -600,7 +600,7 @@ test "formatTurnSummaryLine renders only total duration without token estimate" 
     try std.testing.expectEqualStrings("  1h 00m", line);
 }
 
-test "appendTurnSummaryEntry stays out of compact transcript and remains available to full detail" {
+test "appendTurnSummaryEntry stores classified dim transcript row" {
     const alloc = std.testing.allocator;
     var runtime = TranscriptRuntime{
         .layout = .{
@@ -629,21 +629,7 @@ test "appendTurnSummaryEntry stays out of compact transcript and remains availab
 
     const rendered = try renderEntriesToBytes(alloc, runtime.entries.items, runtime.layout.cols, .{});
     defer alloc.free(rendered);
-    try std.testing.expectEqualStrings("", rendered);
-
-    var projection = try runtime.buildFullTranscriptProjection(alloc, null);
-    defer projection.deinit(alloc);
-    const full = try full_transcript_screen.renderProjectionViewportSourceInterruptible(
-        alloc,
-        &projection,
-        null,
-        runtime.layout.cols,
-        24,
-        0,
-        null,
-    );
-    defer alloc.free(full);
-    try std.testing.expect(std.mem.find(u8, full, "2m 10s (↑10k ↓5k)") != null);
+    try std.testing.expectEqualStrings("\x1b[38;5;245m  2m 10s (↑10k ↓5k)\x1b[0m\n", rendered);
 }
 
 test "recovered route status is transient and final summary stays normal" {
