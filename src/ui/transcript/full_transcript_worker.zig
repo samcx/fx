@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const full_transcript_page = @import("../../core/output/full_transcript_page.zig");
 const session_child_store = @import("../../core/session/session_child_store.zig");
 const types = @import("../../core/shared/types.zig");
@@ -196,6 +197,11 @@ pub const Load = struct {
     fn start(self: *Load, source: Source) !void {
         const task = try std.heap.c_allocator.create(Task);
         task.* = .{ .source = source };
+        if (comptime builtin.single_threaded) {
+            task.run();
+            self.task = task;
+            return;
+        }
         task.thread = std.Thread.spawn(.{}, Task.run, .{task}) catch |err| {
             task.source.deinit(std.heap.c_allocator);
             std.heap.c_allocator.destroy(task);
