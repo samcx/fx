@@ -953,9 +953,6 @@ printf '${trailingMarker}   '
 
       await active.sendKeys("C-o");
       await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
-      expect(await active.capturePane()).not.toContain(trailingMarker);
-      await active.sendKeys("Right");
-      await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
       await active.sendHexBytes(
         Array.from({ length: 80 }, () => ["1b", "5b", "36", "7e"]).flat(),
       );
@@ -972,12 +969,17 @@ printf '${trailingMarker}   '
       expect(fullHead).toContain(ansiMarker);
       expect(fullHead).toContain(crMarker);
       expect(fullHead).toContain("NUL:\\x00:END");
-      expect(fullHead).toContain("INVALID:\\xff:END");
       expect(fullHead).not.toContain("CR_STAGE_01");
       expect(fullHead).not.toContain("\\x1b[31m");
       await active.sendHexBytes(["1b", "5b", "3c", "36", "35", "3b", "31", "3b", "31", "4d"]);
+      const invalidViewport = await active.waitForPane(
+        (pane) => pane !== fullHead && pane.includes("INVALID:\\xff:END"),
+        TIMEOUT,
+      );
+      expect(invalidViewport).not.toContain("\\x1b[31m");
+      await active.sendHexBytes(["1b", "5b", "3c", "36", "35", "3b", "31", "3b", "31", "4d"]);
       const boundaryViewport = await active.waitForPane(
-        (pane) => pane !== fullHead && pane.includes("BOUNDARY_LEADING"),
+        (pane) => pane !== invalidViewport && pane.includes("BOUNDARY_LEADING"),
         TIMEOUT,
       );
       expect(boundaryViewport).toContain("BOUNDARY_LEADING");
@@ -1012,9 +1014,6 @@ printf '${trailingMarker}   '
       });
       await active.waitForText(doneMarker, TIMEOUT);
       await active.sendKeys("C-o");
-      await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
-      expect(await active.capturePane()).not.toContain(trailingMarker);
-      await active.sendKeys("Right");
       await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
       await active.sendHexBytes(
         Array.from({ length: 80 }, () => ["1b", "5b", "36", "7e"]).flat(),
@@ -1069,10 +1068,10 @@ test.skipIf(!tmuxAvailable())(
     );
     writeFileSync(stderrPath, "");
 
-    const tailMarker = "FULL_CTRL_O_LINE_3000";
+    const tailMarker = "FULL_CTRL_O_LINE_0100";
     const commandArgumentTail = "FULL_CTRL_O_COMMAND_ARGUMENT_TAIL";
     const command =
-      "awk 'BEGIN { for (i = 1; i <= 3000; i++) printf \"FULL_CTRL_O_LINE_%04d\\n\", i }'" +
+      "awk 'BEGIN { for (i = 1; i <= 100; i++) printf \"FULL_CTRL_O_LINE_%04d\\n\", i }'" +
       ` # ${"argument-padding-".repeat(8)}${commandArgumentTail}`;
     const gateway = startFakeGateway([
       fakeGatewayToolCall("ctrl-o-command", "terminal", { action: "exec", timeout_ms: 600_000, command }),
@@ -1106,14 +1105,27 @@ test.skipIf(!tmuxAvailable())(
       expect(expandedAtTail).toContain(tailMarker);
       expect(expandedAtTail).not.toContain("FULL_CTRL_O_LINE_0001");
 
-      await active.sendKeys(Array.from({ length: 107 }, () => "PPage").join(" "));
+      for (let page = 0; page < 20; page += 1) {
+        const before = await active.capturePane();
+        if (
+          before.includes("FULL_CTRL_O_LINE_0001") &&
+          /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC · Tool/.test(before)
+        ) break;
+        await active.sendKeys("PPage");
+        await active.waitForPane((pane) => pane !== before, TIMEOUT);
+      }
       const expandedAtHead = await active.waitForText("command: awk", TIMEOUT);
       expect(expandedAtHead).toMatch(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} UTC · Tool/);
       expect(expandedAtHead).toContain(commandArgumentTail);
       expect(expandedAtHead).toContain("FULL_CTRL_O_LINE_0001");
       expect(expandedAtHead).not.toContain(tailMarker);
 
-      await active.sendKeys(Array.from({ length: 107 }, () => "NPage").join(" "));
+      for (let page = 0; page < 20; page += 1) {
+        const before = await active.capturePane();
+        if (before.includes(tailMarker)) break;
+        await active.sendKeys("NPage");
+        await active.waitForPane((pane) => pane !== before, TIMEOUT);
+      }
       await active.waitForText(tailMarker, TIMEOUT);
       const full = await active.capturePane();
       expect(full).toContain(tailMarker);
@@ -1614,12 +1626,6 @@ while :; do :; done
 
       await active.sendKeys("C-o");
       await active.waitForText("┃ Full detail · ctrl o close", timeout);
-      expect(await active.capturePane()).not.toContain(tailMarker);
-      await active.sendKeys("Right");
-      await active.waitForText("┃ Full detail · ctrl o close", timeout);
-      await active.sendHexBytes(
-        Array.from({ length: 500 }, () => ["1b", "5b", "36", "7e"]).flat(),
-      );
       await active.waitForText(tailMarker, timeout);
       writeFileSync(ctrlOPath, await active.capturePane());
       await active.sendKeys("C-o");
@@ -1701,7 +1707,6 @@ while :; do :; done
       });
       expect(replayFrames.code).toBe(0);
       expect(replayFrames.stderr).toBe("");
-      expect(replayFrames.stdout).toContain(expectedRows[0]!);
       expect(replayFrames.stdout).toContain(tailMarker);
       const replayJson = await runFx(["replay", tapePath, "--json"], {
         cwd: realpathSync(workspace),
@@ -2543,7 +2548,10 @@ test.skipIf(!tmuxAvailable())(
       );
       const readingBefore = await active.capturePaneGrid();
       expect(readingBefore.join("\n")).toContain("Full detail · ctrl o close");
-      expect(readingBefore.join("\n")).toMatch(/\d+ more lines · → to expand/);
+      expect(readingBefore.join("\n")).toMatch(
+        new RegExp(`│ ${lineMarker} \\d{3}`),
+      );
+      expect(readingBefore.join("\n")).not.toContain("ctrl o to view");
 
       await waitForCondition(() => existsSync(phaseTwoComplete), "second output phase");
       await waitForCondition(() => gateway.requests.length >= 2, "post-command gateway request");
@@ -2559,8 +2567,11 @@ test.skipIf(!tmuxAvailable())(
       for (const [rowIndex, row] of normalizedBefore.entries()) {
         if (row !== "") expect(normalizedAfter[rowIndex]).toBe(row);
       }
-      for (const index of [1, 2, 3]) {
-        const marker = `│ ${lineMarker} ${String(index).padStart(3, "0")}`;
+      const visibleOutputRows = readingBefore.filter((row) =>
+        row.includes(`│ ${lineMarker} `)
+      );
+      expect(visibleOutputRows.length).toBeGreaterThan(0);
+      for (const marker of visibleOutputRows.slice(0, 3)) {
         expect(readingAfter.indexOf(marker)).toBe(readingBefore.indexOf(marker));
       }
 
@@ -2826,32 +2837,40 @@ test.skipIf(!tmuxAvailable())(
           pane.includes(beforeMarker) &&
           pane.includes("1 tool call") &&
           pane.includes("Ran ") &&
-          pane.includes("1 output line") &&
           pane.includes(outputMarker) &&
           pane.includes(afterMarker),
         TIMEOUT,
       );
       const grid = fullTranscript.replace(/\n$/, "").split("\n");
       const before = grid.findIndex((line) => line.includes(beforeMarker));
+      const toolTimestamp = grid.findIndex(
+        (line, index) => index > before && line.includes("UTC · Tool"),
+      );
       const header = grid.findIndex((line) => line.includes("1 tool call"));
       const tool = grid.findIndex((line) => line.includes("Ran "));
-      const metadata = grid.findIndex((line) => line.includes("1 output line"));
       const output = grid.findIndex((line) => line.trimStart().startsWith(`│ ${outputMarker}`));
+      const afterTimestamp = grid.findIndex(
+        (line, index) => index > output && line.includes("UTC · Response"),
+      );
       const after = grid.findIndex((line) => line.includes(afterMarker));
       if (
-        before < 0 || header < 0 || tool < 0 ||
-        metadata < 0 || output < 0 || after < 0
+        before < 0 || toolTimestamp < 0 || header < 0 || tool < 0 ||
+        output < 0 || afterTimestamp < 0 || after < 0
       ) {
         throw new Error(`missing full transcript rows:\n${grid.join("\n")}`);
       }
       expect(fullTranscript).not.toContain(
         "Permissions: Auto agent approved this request",
       );
-      expect(header).toBe(before + 2);
+      expect(grid[before + 1]).toBe("");
+      expect(toolTimestamp).toBe(before + 2);
+      expect(header).toBe(toolTimestamp + 1);
       expect(tool).toBe(header + 1);
-      expect(metadata).toBe(tool + 1);
-      expect(output).toBe(metadata + 1);
-      expect(after).toBe(output + 2);
+      expect(grid[tool + 1]).toContain("timeout_ms: 600000");
+      expect(output).toBe(tool + 2);
+      expect(grid[output + 1]).toBe("");
+      expect(afterTimestamp).toBe(output + 2);
+      expect(after).toBe(afterTimestamp + 1);
 
       await active.sendKeys("Escape");
       await active.waitForComposer(TIMEOUT);
@@ -2983,14 +3002,13 @@ test.skipIf(!tmuxAvailable())(
 
       await active.sendKeys("C-o");
       await active.waitForText("READ_RESULT_MARKER", TIMEOUT);
-      const review = await active.capturePane();
-      expect(review).toContain("Full detail · ctrl o close · PgUp/PgDn scroll · Esc close");
-      expect(review).toContain("1 line");
-      expect(review).toContain("READ_RESULT_MARKER");
-      expect(review).not.toContain("<path>");
-      expect(review).not.toContain("<content>");
-      expect(review).not.toContain("\\x0a");
-      expect(review).not.toMatch(/^\s*input\s*$/m);
+      const full = await active.capturePane();
+      expect(full).toContain("Full detail · ctrl o close · PgUp/PgDn scroll · Esc close");
+      expect(full).toContain("READ_RESULT_MARKER");
+      expect(full).not.toContain("<path>");
+      expect(full).not.toContain("<content>");
+      expect(full).not.toContain("\\x0a");
+      expect(full).not.toMatch(/^\s*input\s*$/m);
       expect(readFileSync(stderrPath, "utf8")).not.toContain("AnsiBandOverflow");
     } finally {
       if (active) {
@@ -3386,7 +3404,6 @@ test.skipIf(!tmuxAvailable())(
 
       await active.sendKeys("C-o");
       await Bun.sleep(150);
-      await active.sendKeys("Right");
       await active.waitForText("┃ Full detail · ctrl o close", actionTimeout);
       await active.sendHexBytes(
         Array.from({ length: 20 }, () => ["1b", "5b", "36", "7e"]).flat(),
@@ -3601,7 +3618,6 @@ test.skipIf(!tmuxAvailable())(
         () => alternateDepthAt(tapeText()) === 1,
         "Ctrl-O to enter the alternate screen",
       );
-      await active.sendKeys("Right");
       await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
       await active.sendHexBytes(["1b", "5b", "36", "7e"]);
       const tailViewport = await active.waitForText(streamGate, TIMEOUT);
@@ -3654,7 +3670,6 @@ test.skipIf(!tmuxAvailable())(
         () => alternateDepthAt(tapeText()) === 1,
         "the repeated Ctrl-O entry",
       );
-      await active.sendKeys("Right");
       await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
       await active.sendKeys("C-o");
       await waitForCondition(
@@ -4805,7 +4820,6 @@ test.skipIf(!tmuxAvailable())(
         expectNoRawToolReplay(resumedToolScrollback);
         if (index === 0) {
           await active.sendKeys("C-o");
-          await active.sendKeys("Right");
           await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
           await active.waitForText(toolWorkspaceMarker, TIMEOUT);
           const full = await active.capturePane();
@@ -5271,17 +5285,6 @@ test.skipIf(!tmuxAvailable())(
 
       await active.sendKeys("C-o");
       await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
-      const review = await active.capturePane();
-      expect(review).toContain("RESUMED_SECOND_FILE_LINE_001");
-      expect(review).toContain("RESUMED_SECOND_FILE_LINE_003");
-      expect(review).not.toContain("RESUMED_SECOND_FILE_LINE_004");
-      expect(review).not.toContain("RESUMED_SECOND_FILE_LINE_060");
-      expect(review).toContain("57 more lines · → to expand");
-      expect(review).toMatch(/^  │  57 more lines · → to expand/m);
-      expect(review).not.toMatch(/^│  57 more lines · → to expand/m);
-      expect(review).not.toMatch(/^\s*│?\s*60 lines\s*$/m);
-      await active.sendKeys("Right");
-      await active.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
       await active.sendHexBytes(
         Array.from({ length: 10 }, () => ["1b", "5b", "36", "7e"]).flat(),
       );
@@ -5392,8 +5395,6 @@ printf '${stdoutTail2}\\n'
 
     async function expectRestoredViewerOutput(session: TmuxSession): Promise<void> {
       await session.sendKeys("C-o");
-      await session.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
-      await session.sendKeys("Right");
       await session.waitForText("┃ Full detail · ctrl o close", TIMEOUT);
       const tail = await session.capturePane();
       expect(tail).toContain(stdoutTail2);

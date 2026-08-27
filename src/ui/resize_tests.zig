@@ -2484,7 +2484,7 @@ test "thinking shimmer reserves assistant-gap rows and clears back to stable foo
     try std.testing.expectEqual(footer_idle, footer_after);
 }
 
-test "completed presentation tail keeps activity slot until turn summary" {
+test "hidden turn summary releases the completed presentation activity slot" {
     var h = try Harness.init(std.testing.allocator, 80, 22, 4);
     defer h.deinit();
 
@@ -2535,9 +2535,9 @@ test "completed presentation tail keeps activity slot until turn summary" {
     try h.flush();
 
     try expectGridNotContains(&h, "Thinking");
-    const summary_row = try findRowContaining(&h, "  4s (↑200 ↓118)");
-    const footer_after_summary = try findFirstDividerRowAfter(&h, summary_row);
-    try expectExactlyOneBlankRowBetween(&h, summary_row, footer_after_summary);
+    try expectGridNotContains(&h, "  4s (↑200 ↓118)");
+    const footer_after_summary = try findFirstDividerRowAfter(&h, assistant_row);
+    try expectExactlyOneBlankRowBetween(&h, assistant_row, footer_after_summary);
 }
 
 test "thinking shimmer keeps a gap after completed tool status" {

@@ -8,6 +8,7 @@ const activity_runtime = @import("../../core/output/activity_runtime.zig");
 const transcript_release = @import("../../core/output/transcript_release.zig");
 const transcript_presentation = @import("../../core/output/transcript_presentation.zig");
 const full_transcript_page = @import("../../core/output/full_transcript_page.zig");
+const diff_mod = @import("../../core/output/diff.zig");
 const worker_status = @import("../../core/output/worker_status.zig");
 const footer_viewport_runtime = @import("../footer/viewport.zig");
 const render_request = @import("../render_request.zig");
@@ -599,7 +600,7 @@ test "formatTurnSummaryLine renders only total duration without token estimate" 
     try std.testing.expectEqualStrings("  1h 00m", line);
 }
 
-test "appendTurnSummaryEntry stores classified dim transcript row" {
+test "appendTurnSummaryEntry stays out of compact transcript and remains available to full detail" {
     const alloc = std.testing.allocator;
     var runtime = TranscriptRuntime{
         .layout = .{
@@ -628,7 +629,21 @@ test "appendTurnSummaryEntry stores classified dim transcript row" {
 
     const rendered = try renderEntriesToBytes(alloc, runtime.entries.items, runtime.layout.cols, .{});
     defer alloc.free(rendered);
-    try std.testing.expectEqualStrings("\x1b[38;5;245m  2m 10s (↑10k ↓5k)\x1b[0m\n", rendered);
+    try std.testing.expectEqualStrings("", rendered);
+
+    var projection = try runtime.buildFullTranscriptProjection(alloc, null);
+    defer projection.deinit(alloc);
+    const full = try full_transcript_screen.renderProjectionViewportSourceInterruptible(
+        alloc,
+        &projection,
+        null,
+        runtime.layout.cols,
+        24,
+        0,
+        null,
+    );
+    defer alloc.free(full);
+    try std.testing.expect(std.mem.find(u8, full, "2m 10s (↑10k ↓5k)") != null);
 }
 
 test "recovered route status is transient and final summary stays normal" {
@@ -791,6 +806,7 @@ test "full transcript viewport snapshot restores reading position" {
             .anchor_entry_id = 19,
             .anchor_pending = true,
         },
+        .full_transcript_page_anchor = .{ .entry_index = 17 },
     };
     defer source.deinit(std.testing.allocator);
     const snapshot = source.snapshotFullTranscriptViewport();
@@ -803,6 +819,95 @@ test "full transcript viewport snapshot restores reading position" {
         snapshot,
         restored.snapshotFullTranscriptViewport(),
     ));
+    try std.testing.expect(std.meta.eql(
+        source.full_transcript_page_anchor,
+        restored.full_transcript_page_anchor,
+    ));
+}
+
+test "full transcript page snapshot retains active command records" {
+    const alloc = std.testing.allocator;
+    var runtime = TranscriptRuntime{ .layout = .{
+        .rows = 24,
+        .cols = 80,
+        .content_bottom = 20,
+        .divider_top_row = 21,
+        .input_row = 22,
+        .divider_bottom_row = 23,
+        .hint_row = 24,
+    } };
+    defer runtime.deinit(alloc);
+
+    const entry_id = try runtime.appendRawTranscriptEntryClassified(
+        alloc,
+        "│ compact output\n",
+        .command_output,
+    );
+    var block = CommandOutputBlock{
+        .entry_id = entry_id,
+        .total_lines = 1,
+        .retained_text_bytes = "ACTIVE_SNAPSHOT_RECORD\n".len,
+    };
+    try block.lines.append(alloc, .{
+        .stream = .stdout,
+        .text = try alloc.dupe(u8, "ACTIVE_SNAPSHOT_RECORD\n"),
+        .entry_id = entry_id,
+        .terminated = true,
+    });
+    try block.source_entry_ids.append(alloc, entry_id);
+    try runtime.command_output_blocks.append(alloc, block);
+
+    var source = try runtime.snapshotFullTranscriptPage(.{
+        .generation = 1,
+        .content_revision = runtime.full_transcript_content_revision,
+        .cols = 80,
+        .anchor = .tail,
+    }, null, null);
+    defer source.deinit(std.heap.c_allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), source.command_blocks.items.len);
+    try std.testing.expectEqual(@as(usize, 1), source.command_blocks.items[0].lines.items.len);
+    try std.testing.expectEqualStrings(
+        "ACTIVE_SNAPSHOT_RECORD\n",
+        source.command_blocks.items[0].lines.items[0].text,
+    );
+}
+
+test "full transcript loading projection preserves restored viewport intent" {
+    const alloc = std.testing.allocator;
+    var runtime = TranscriptRuntime{
+        .layout = .{
+            .rows = 12,
+            .cols = 60,
+            .content_bottom = 8,
+            .divider_top_row = 9,
+            .input_row = 10,
+            .divider_bottom_row = 11,
+            .hint_row = 12,
+        },
+        .owned_top_row = 1,
+        .full_transcript = .{
+            .depth = .full,
+            .scroll_rows = 56,
+            .follow_tail = false,
+        },
+    };
+    defer runtime.deinit(alloc);
+
+    const loading = try runtime.fullTranscriptLoadingProjection(alloc);
+    var metrics: Metrics = .{};
+    var paint = try runtime.prepareFullTranscriptSurfacePaint(
+        alloc,
+        &metrics,
+        loading,
+        null,
+        .{ .top = 1, .bottom = 8 },
+    );
+    defer paint.source.deinit(alloc);
+    defer paint.prepared.deinit(alloc);
+
+    try std.testing.expectEqual(@as(u32, 56), runtime.full_transcript.scroll_rows);
+    try std.testing.expect(!runtime.full_transcript.follow_tail);
 }
 
 test "opening the full transcript leaves compact command projection unchanged" {
@@ -6330,17 +6435,26 @@ pub const TranscriptRuntime = struct {
         return self.full_transcript.depth;
     }
 
+    pub const FullTranscriptViewportSnapshot = struct {
+        presentation: transcript_presentation.Snapshot,
+        page_anchor: full_transcript_page.Anchor,
+    };
+
     pub fn snapshotFullTranscriptViewport(
         self: *const TranscriptRuntime,
-    ) transcript_presentation.Snapshot {
-        return self.full_transcript.snapshot();
+    ) FullTranscriptViewportSnapshot {
+        return .{
+            .presentation = self.full_transcript.snapshot(),
+            .page_anchor = self.full_transcript_page_anchor,
+        };
     }
 
     pub fn restoreFullTranscriptViewport(
         self: *TranscriptRuntime,
-        snapshot: transcript_presentation.Snapshot,
+        snapshot: FullTranscriptViewportSnapshot,
     ) void {
-        self.full_transcript = .from_snapshot(snapshot);
+        self.full_transcript = .from_snapshot(snapshot.presentation);
+        self.full_transcript_page_anchor = snapshot.page_anchor;
         self.markTranscriptDirty();
     }
 
@@ -9489,11 +9603,10 @@ pub const TranscriptRuntime = struct {
         capability: ?*session_child_store.SessionChildCapability,
         checkpoint: ?*build_checkpoint.BuildCheckpoint,
     ) !*full_transcript_screen.Projection {
-        _ = full_diff_resolver;
         try build_checkpoint.poll(checkpoint);
         std.debug.assert(self.full_transcript.depth == .full);
 
-        try self.ensureFullTranscriptPageLoad(capability);
+        try self.ensureFullTranscriptPageLoad(capability, full_diff_resolver);
         if (self.full_transcript_page_request) |request| {
             if (self.full_transcript_page_source) |*source| {
                 if (full_transcript_page.sameSurface(request, source.request)) {
@@ -9526,6 +9639,7 @@ pub const TranscriptRuntime = struct {
     fn ensureFullTranscriptPageLoad(
         self: *TranscriptRuntime,
         capability: ?*session_child_store.SessionChildCapability,
+        full_diff_resolver: ?full_transcript_screen.FullDiffResolver,
     ) !void {
         if (self.full_transcript_page_request == null and
             self.full_transcript_page_projection != null)
@@ -9585,6 +9699,7 @@ pub const TranscriptRuntime = struct {
         var source = try self.snapshotFullTranscriptPage(
             request,
             capability,
+            full_diff_resolver,
         );
         var source_owned = true;
         errdefer if (source_owned) source.deinit(std.heap.c_allocator);
@@ -9597,6 +9712,7 @@ pub const TranscriptRuntime = struct {
         self: *const TranscriptRuntime,
         request: full_transcript_page.Request,
         capability: ?*session_child_store.SessionChildCapability,
+        full_diff_resolver: ?full_transcript_screen.FullDiffResolver,
     ) !full_transcript_worker.Source {
         const alloc = std.heap.c_allocator;
         const range = full_transcript_page.sourceRange(
@@ -9685,12 +9801,15 @@ pub const TranscriptRuntime = struct {
                 break;
             }
         }
+        if (full_diff_resolver) |resolver| {
+            try appendSnapshotFullDiffs(alloc, &source, resolver);
+        }
         if (capability) |current| {
             source.capability = try current.cloneReadOnly(alloc);
         }
         debug_trace.logf(
             "full_transcript_cache",
-            "page_snapshot generation={d} range={d}..{d} entries={d} details={d} blocks={d}",
+            "page_snapshot generation={d} range={d}..{d} entries={d} details={d} blocks={d} diffs={d}",
             .{
                 request.generation,
                 range.start,
@@ -9698,9 +9817,58 @@ pub const TranscriptRuntime = struct {
                 source.entries.items.len,
                 source.details.items.len,
                 source.command_blocks.items.len,
+                source.full_diffs.items.len,
             },
         );
         return source;
+    }
+
+    fn appendSnapshotFullDiffs(
+        alloc: Allocator,
+        source: *full_transcript_worker.Source,
+        resolver: full_transcript_screen.FullDiffResolver,
+    ) !void {
+        for (source.entries.items) |entry| {
+            const raw = switch (entry) {
+                .raw_bytes => |value| value,
+                else => continue,
+            };
+            if (raw.class != .diff_block) continue;
+            const marker_id = diff_mod.markedDiffBlockId(raw.bytes) orelse continue;
+            var duplicate = false;
+            for (source.full_diffs.items) |existing| {
+                if (existing.marker_id == marker_id) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            const content = resolver.full_for_marker(
+                resolver.context,
+                marker_id,
+            ) orelse continue;
+            try source.appendFullDiff(alloc, marker_id, content);
+        }
+
+        for (source.details.items) |detail| {
+            const lifecycle_id = detail.lifecycle_id orelse continue;
+            if (!resolver.has_full_for_lifecycle(
+                resolver.context,
+                lifecycle_id,
+            )) continue;
+            var duplicate = false;
+            for (source.full_diff_lifecycles.items) |existing| {
+                if (command_output_runtime.sameLifecycleId(
+                    existing,
+                    lifecycle_id,
+                )) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) continue;
+            try source.appendFullDiffLifecycle(alloc, lifecycle_id);
+        }
     }
 
     fn snapshotContainsEntry(
@@ -9839,7 +10007,7 @@ pub const TranscriptRuntime = struct {
         }
         try source.command_blocks.append(
             alloc,
-            try full_transcript_worker.cloneCommandBlockMetadata(alloc, block),
+            try full_transcript_worker.cloneCommandBlockForPageSnapshot(alloc, block),
         );
         return source.command_blocks.items.len - 1;
     }
@@ -10174,15 +10342,26 @@ pub const TranscriptRuntime = struct {
         area: render_engine.frame_layout.FrameRect,
         checkpoint: ?*build_checkpoint.BuildCheckpoint,
     ) !FullTranscriptSurfacePaint {
-        const source_bytes = try full_transcript_screen.renderProjectionViewportSourceWithSelectorInterruptible(
-            alloc,
-            projection,
-            capability,
-            self.layout.cols,
-            area.height(),
-            .{ .context = self, .select_offset = selectProjectionViewportOffset },
-            checkpoint,
-        );
+        const source_bytes = if (self.fullTranscriptProjectionIsLoading(projection))
+            try full_transcript_screen.renderProjectionViewportSourceInterruptible(
+                alloc,
+                projection,
+                capability,
+                self.layout.cols,
+                area.height(),
+                0,
+                checkpoint,
+            )
+        else
+            try full_transcript_screen.renderProjectionViewportSourceWithSelectorInterruptible(
+                alloc,
+                projection,
+                capability,
+                self.layout.cols,
+                area.height(),
+                .{ .context = self, .select_offset = selectProjectionViewportOffset },
+                checkpoint,
+            );
         var source = try self.prepareFullTranscriptViewportSource(alloc, source_bytes);
         errdefer source.deinit(alloc);
         const prepared = try transcript_painter.preparePreselectedTranscriptSurfacePaintFromSourceForArea(
@@ -10193,6 +10372,17 @@ pub const TranscriptRuntime = struct {
             area,
         );
         return .{ .source = source, .prepared = prepared };
+    }
+
+    fn fullTranscriptProjectionIsLoading(
+        self: *TranscriptRuntime,
+        projection: *const full_transcript_screen.Projection,
+    ) bool {
+        const loading = if (self.full_transcript_loading_projection) |*value|
+            value
+        else
+            return false;
+        return loading == projection;
     }
 
     fn selectProjectionViewportOffset(

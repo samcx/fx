@@ -904,7 +904,7 @@ test "full projection matches file details to full diffs by marker and lifecycle
     };
     var resolver_context: u8 = 0;
     const styles: transcript_blocks.Styles = .{ .system_notice_label_style = "", .system_notice_text_style = "", .reset_style = "", .dim_style = "", .red_style = "" };
-    var projection = try buildProjectionWithDiffResolver(
+    var projection = try buildProjectionWithResolver(
         alloc,
         &entries,
         &details,
@@ -929,7 +929,7 @@ test "full projection matches file details to full diffs by marker and lifecycle
     try std.testing.expect(std.mem.indexOf(u8, source, "  │     COMPACT_SECOND_TAIL") != null);
     try std.testing.expect(std.mem.indexOf(u8, source, "RAW_SECOND") != null);
 
-    var wide_projection = try buildProjectionWithDiffResolver(
+    var wide_projection = try buildProjectionWithResolver(
         alloc,
         &entries,
         &details,
@@ -3602,7 +3602,7 @@ pub fn buildProjection(
     };
 }
 
-fn buildProjectionWithDiffResolver(
+pub fn buildProjectionWithResolver(
     alloc: Allocator,
     entries: []const transcript_blocks.TranscriptEntry,
     details: []const ToolDetailRecord,

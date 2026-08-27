@@ -11,12 +11,23 @@ const command_output_runtime = @import("command_output_runtime.zig");
 
 const Allocator = std.mem.Allocator;
 
+pub const FullDiffSnapshot = struct {
+    marker_id: u32,
+    content: []u8,
+
+    fn deinit(self: FullDiffSnapshot, alloc: Allocator) void {
+        alloc.free(self.content);
+    }
+};
+
 pub const Source = struct {
     request: full_transcript_page.Request,
     range: full_transcript_page.SourceRange,
     entries: std.ArrayList(transcript_blocks.TranscriptEntry) = .empty,
     details: std.ArrayList(transcript_blocks.ToolDetailRecord) = .empty,
     command_blocks: std.ArrayList(command_output_runtime.CommandOutputBlock) = .empty,
+    full_diffs: std.ArrayList(FullDiffSnapshot) = .empty,
+    full_diff_lifecycles: std.ArrayList(types.ToolLifecycleId) = .empty,
     styles: transcript_blocks.Styles,
     capability: ?session_child_store.SessionChildCapability = null,
 
@@ -27,8 +38,71 @@ pub const Source = struct {
         self.details.deinit(alloc);
         for (self.command_blocks.items) |*block| block.deinit(alloc);
         self.command_blocks.deinit(alloc);
+        for (self.full_diffs.items) |diff| diff.deinit(alloc);
+        self.full_diffs.deinit(alloc);
+        for (self.full_diff_lifecycles.items) |lifecycle_id| {
+            alloc.free(@constCast(lifecycle_id.call_id));
+        }
+        self.full_diff_lifecycles.deinit(alloc);
         if (self.capability) |*capability| capability.deinit();
         self.* = undefined;
+    }
+
+    pub fn fullDiffResolver(self: *Source) ?full_transcript_screen.FullDiffResolver {
+        if (self.full_diffs.items.len == 0 and
+            self.full_diff_lifecycles.items.len == 0) return null;
+        return .{
+            .context = self,
+            .full_for_marker = fullDiffForMarker,
+            .has_full_for_lifecycle = hasFullDiffForLifecycle,
+        };
+    }
+
+    pub fn appendFullDiff(
+        self: *Source,
+        alloc: Allocator,
+        marker_id: u32,
+        content: []const u8,
+    ) !void {
+        const owned_content = try alloc.dupe(u8, content);
+        errdefer alloc.free(owned_content);
+        try self.full_diffs.append(alloc, .{
+            .marker_id = marker_id,
+            .content = owned_content,
+        });
+    }
+
+    pub fn appendFullDiffLifecycle(
+        self: *Source,
+        alloc: Allocator,
+        lifecycle_id: types.ToolLifecycleId,
+    ) !void {
+        const call_id = try alloc.dupe(u8, lifecycle_id.call_id);
+        errdefer alloc.free(call_id);
+        try self.full_diff_lifecycles.append(alloc, .{
+            .turn_id = lifecycle_id.turn_id,
+            .call_id = call_id,
+        });
+    }
+
+    fn fullDiffForMarker(raw: *anyopaque, marker_id: u32) ?[]const u8 {
+        const self: *Source = @ptrCast(@alignCast(raw));
+        for (self.full_diffs.items) |diff| {
+            if (diff.marker_id == marker_id) return diff.content;
+        }
+        return null;
+    }
+
+    fn hasFullDiffForLifecycle(
+        raw: *anyopaque,
+        lifecycle_id: types.ToolLifecycleId,
+    ) bool {
+        const self: *Source = @ptrCast(@alignCast(raw));
+        for (self.full_diff_lifecycles.items) |candidate| {
+            if (candidate.turn_id == lifecycle_id.turn_id and
+                std.mem.eql(u8, candidate.call_id, lifecycle_id.call_id)) return true;
+        }
+        return false;
     }
 };
 
@@ -70,15 +144,27 @@ pub const Task = struct {
 
     fn run(self: *Task) void {
         const alloc = std.heap.c_allocator;
-        var projection = full_transcript_screen.buildProjection(
-            alloc,
-            self.source.entries.items,
-            self.source.details.items,
-            self.source.command_blocks.items,
-            self.source.styles,
-            self.source.request.cols,
-            null,
-        ) catch |err| {
+        var projection = (if (self.source.fullDiffResolver()) |resolver|
+            full_transcript_screen.buildProjectionWithResolver(
+                alloc,
+                self.source.entries.items,
+                self.source.details.items,
+                self.source.command_blocks.items,
+                self.source.styles,
+                self.source.request.cols,
+                null,
+                resolver,
+            )
+        else
+            full_transcript_screen.buildProjection(
+                alloc,
+                self.source.entries.items,
+                self.source.details.items,
+                self.source.command_blocks.items,
+                self.source.styles,
+                self.source.request.cols,
+                null,
+            )) catch |err| {
             self.failure = err;
             self.done.store(true, .release);
             return;
@@ -119,7 +205,7 @@ pub const Task = struct {
     }
 };
 
-pub fn cloneCommandBlockMetadata(
+pub fn cloneCommandBlockForPageSnapshot(
     alloc: Allocator,
     source: command_output_runtime.CommandOutputBlock,
 ) !command_output_runtime.CommandOutputBlock {
@@ -130,7 +216,7 @@ pub fn cloneCommandBlockMetadata(
         }
     else
         null;
-    return .{
+    var clone = command_output_runtime.CommandOutputBlock{
         .entry_id = source.entry_id,
         .lifecycle_id = lifecycle_id,
         .total_lines = source.total_lines,
@@ -138,6 +224,20 @@ pub fn cloneCommandBlockMetadata(
         .retention_overflow = source.retention_overflow,
         .overflow_line_index = source.overflow_line_index,
     };
+    errdefer clone.deinit(alloc);
+    try clone.lines.ensureTotalCapacity(alloc, source.lines.items.len);
+    for (source.lines.items) |line| {
+        clone.lines.appendAssumeCapacity(.{
+            .stream = line.stream,
+            .text = try alloc.dupe(u8, line.text),
+            .record_ordinal = line.record_ordinal,
+            .entry_id = line.entry_id,
+            .terminated = line.terminated,
+            .visible = line.visible,
+        });
+    }
+    try clone.pruned_ranges.appendSlice(alloc, source.pruned_ranges.items);
+    return clone;
 }
 
 pub const Load = struct {

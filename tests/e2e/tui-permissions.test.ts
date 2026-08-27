@@ -1383,7 +1383,6 @@ describe.skipIf(!tmuxAvailable())("tui: file permissions", () => {
 
       await session.sendKeys("C-o");
       await session.waitForText("Full detail · ctrl o close", TIMEOUT);
-      await session.sendKeys("Right");
       for (let page = 0; page < 20; page += 1) {
         await session.sendHexBytes(["1b", "5b", "36", "7e"]);
       }
@@ -1401,6 +1400,11 @@ describe.skipIf(!tmuxAvailable())("tui: file permissions", () => {
       expect(fullFirst).toContain("CTRL_O_FIRST_120");
       expect(fullFirst).not.toContain("omitted");
       expect(fullFirst).not.toContain('"content":"CTRL_O_FIRST');
+
+      for (let page = 0; page < 20; page += 1) {
+        await session.sendHexBytes(["1b", "5b", "35", "7e"]);
+      }
+      await session.waitForText("CTRL_O_FIRST_001", TIMEOUT);
 
       await session.sendKeys("C-o");
       await session.waitForComposer(TIMEOUT);
@@ -1461,22 +1465,18 @@ describe.skipIf(!tmuxAvailable())("tui: file permissions", () => {
 
       await session.sendKeys("C-o");
       await session.waitForText("Full detail · ctrl o close", TIMEOUT);
-      const review = await session.capturePane();
-      expectDiffSentinelOnRail(review, "OLD_WRAP_TAIL");
-      expectDiffSentinelOnRail(review, "NEW_WRAP_TAIL");
-
-      await session.sendKeys("Right");
-      await session.waitForText("Full detail · ctrl o close", TIMEOUT);
       const full = await session.capturePane();
       expectDiffSentinelOnRail(full, "OLD_WRAP_TAIL");
       expectDiffSentinelOnRail(full, "NEW_WRAP_TAIL");
 
       await session.resizeWindow(56, 40, 500);
+      await session.waitForText("OLD_WRAP_TAIL", TIMEOUT);
       const narrow = await session.capturePane();
       expectDiffSentinelOnRail(narrow, "OLD_WRAP_TAIL");
       expectDiffSentinelOnRail(narrow, "NEW_WRAP_TAIL");
 
       await session.resizeWindow(100, 40, 500);
+      await session.waitForText("OLD_WRAP_TAIL", TIMEOUT);
       const wide = await session.capturePane();
       expectDiffSentinelOnRail(wide, "OLD_WRAP_TAIL");
       expectDiffSentinelOnRail(wide, "NEW_WRAP_TAIL");
