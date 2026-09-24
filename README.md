@@ -131,7 +131,9 @@ MCP user authorization. Employees connect their own account with
 `/mcp auth slack --open` in an fx session (or `fx mcp auth slack` from a terminal).
 For `https://mcp.slack.com/mcp`, the CLI recognizes the fx app by its public
 Client ID and uses the HTTPS callback for personal login. Changing that Client
-ID requires a CLI update. First login and reauthorization request the full shared
+ID requires a CLI update. OAuth uses the canonical form of Slack's advertised
+resource, `https://mcp.slack.com/`, while the MCP transport remains at
+`https://mcp.slack.com/mcp`. First login and reauthorization request the full shared
 `user_scopes` list from fx.sh. If local `scopes` are configured, they must include
 every shared scope; extra local scopes are not requested. A narrower or explicitly
 empty list stops authorization before opening the browser, leaving the configuration

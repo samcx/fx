@@ -219,9 +219,12 @@ function startAuthFixture(
     slackBridgeScopes?: unknown;
     challengeScope?: string;
     rejectCodeExchange?: boolean;
+    resourceAtOrigin?: boolean;
   } = {},
 ) {
   const transport = options.transport ?? "http";
+  const resourcePath = transport === "sse" ? "/sse" : "/mcp";
+  const metadataResourcePath = (options.resourceAtOrigin ?? Boolean(options.slackBridgeClientId)) ? "" : resourcePath;
   const requests: Array<{
     method: string;
     path: string;
@@ -259,8 +262,7 @@ function startAuthFixture(
         body,
       });
       const origin = `http://127.0.0.1:${server.port}`;
-      const resourcePath = transport === "sse" ? "/sse" : "/mcp";
-      const resource = `${origin}${resourcePath}`;
+      const resource = `${origin}${metadataResourcePath}`;
       const protectedRoute = url.pathname === resourcePath ||
         (transport === "sse" && url.pathname === "/messages");
 
@@ -476,7 +478,7 @@ function startAuthFixture(
       }
       if (url.pathname === "/authorize") {
         authorizationRequests += 1;
-        expect(url.searchParams.get("resource")).toBe(resource);
+        expect(url.searchParams.get("resource")).toBe(new URL(resource).href);
         expect(url.searchParams.get("code_challenge_method")).toBe("S256");
         expectedChallenge = url.searchParams.get("code_challenge") ?? "";
         expectedScope = url.searchParams.get("scope") ?? "";
@@ -495,7 +497,7 @@ function startAuthFixture(
       }
       if (url.pathname === "/token") {
         const form = new URLSearchParams(body);
-        expect(form.get("resource")).toBe(resource);
+        expect(form.get("resource")).toBe(new URL(resource).href);
         if (form.get("grant_type") === "refresh_token") {
           refreshes += 1;
           expect(form.get("refresh_token")).toBe(REFRESH_INITIAL);
@@ -569,6 +571,7 @@ function startAuthFixture(
   });
 
   return {
+    resource: `http://127.0.0.1:${server.port}${metadataResourcePath}`,
     url: `http://127.0.0.1:${server.port}${
       transport === "sse" ? "/sse" : "/mcp"
     }`,
@@ -707,7 +710,7 @@ function seedExpiredCredentials(
       credentials: [{
         server_identity: "fixture",
         endpoint,
-        resource: endpoint,
+        resource: new URL(activeAuth.resource).href,
         issuer: origin,
         client_id: "fx-mcp-auth-test",
         client_secret: null,
@@ -877,7 +880,7 @@ async function preserveAuthTuiFailure(
 async function authorizePersonalFixture(activeAuth: AuthFixture, start: URL) {
   const authorize = new URL("/authorize", activeAuth.url);
   authorize.search = new URLSearchParams({
-    client_id: start.searchParams.get("client_id")!, resource: activeAuth.url, response_type: "code",
+    client_id: start.searchParams.get("client_id")!, resource: new URL(activeAuth.resource).href, response_type: "code",
     redirect_uri: "https://fx.sh/api/slack/oauth/callback", scope: start.searchParams.get("scope")!,
     state: start.searchParams.get("state")!, code_challenge: start.searchParams.get("challenge")!, code_challenge_method: "S256",
   }).toString();
@@ -950,6 +953,7 @@ describe("MCP remote authentication lifecycle", () => {
         expect(credentials[0].access_token).toBe(scenario === "reauth" ? ACCESS_REFRESHED : ACCESS_INITIAL);
         expect(credentials[0].refresh_token).toBe(scenario === "reauth" ? REFRESH_ROTATED : REFRESH_INITIAL);
         expect(credentials[0].scope).toBe("tools.read");
+        expect(credentials[0].resource).toBe(`${bridgeOrigin}/`);
         expect(statSync(credentialPath).mode & 0o777).toBe(0o600);
       } else {
         expect(result.stdout).not.toContain("Authenticated MCP server");
@@ -957,6 +961,21 @@ describe("MCP remote authentication lifecycle", () => {
       expect(await postCallback(body).catch(() => null)).toBe(null);
     }, 20_000);
   }
+
+  test("personal Slack rejects an endpoint-scoped resource before opening a browser", async () => {
+    upstream = startModernMcpHttpFixture("json");
+    auth = startAuthFixture(upstream.url, { slackBridgeClientId: FX_SLACK_CLIENT_ID, resourceAtOrigin: false });
+    const root = createRoot(auth, true, "http", auth.url, false, FX_SLACK_CLIENT_ID);
+    const result = await runFx(["mcp", "auth", "fixture"], {
+      cwd: root.workspace, env: { ...baseEnv(root), FX_E2E_SLACK_ORIGIN: new URL(auth.url).origin }, timeoutMs: 15_000,
+    });
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain("InvalidSlackAuthorizationResource");
+    expect(existsSync(root.openLog)).toBe(false);
+    expect(auth.authorizationRequests).toBe(0);
+    expect(auth.tokenExchanges).toBe(0);
+    expect(existsSync(join(root.home, ".fx", "mcp-credentials", "credentials.json"))).toBe(false);
+  }, 20_000);
 
   for (const scenario of ["read-only", "empty", "unrelated-extra", "reauth"] as const) {
     test(`personal Slack rejects scope expansion without changing credentials: ${scenario}`, async () => {

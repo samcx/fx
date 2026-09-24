@@ -1615,7 +1615,7 @@ fn request_bridged_authorization(ctx: *InteractiveAuthorizationContext, alloc: A
     const query = authorization_url[question + 1 ..];
     const resource = try queryValueAlloc(alloc, query, "resource");
     defer alloc.free(resource);
-    const expected_resource = if (fixture) try std.fmt.allocPrint(alloc, "{s}/mcp", .{origin}) else "https://mcp.slack.com/mcp";
+    const expected_resource = if (fixture) try std.fmt.allocPrint(alloc, "{s}/", .{origin}) else "https://mcp.slack.com/";
     defer if (fixture) alloc.free(expected_resource);
     if (!std.mem.eql(u8, resource, expected_resource)) return error.InvalidSlackAuthorizationResource;
     const state = try queryValueAlloc(alloc, query, "state");
