@@ -57,7 +57,6 @@ pub const RefreshDiagnostics = struct {
     fn capture_response(self: *RefreshDiagnostics, alloc: Allocator, response: HttpResponse) void {
         self.stage = .response;
         self.http_status = response.status;
-        if (response.status == .ok) return;
         var parsed = std.json.parseFromSlice(std.json.Value, alloc, response.body, .{}) catch return;
         defer parsed.deinit();
         if (parsed.value != .object) return;
@@ -1000,6 +999,7 @@ fn refreshCredentialsCore(
         form_writer.written(),
         "application/x-www-form-urlencoded",
         auth.headers(),
+        diagnostics,
     );
     defer response.deinit(alloc);
     if (diagnostics) |value| value.capture_response(alloc, response);
@@ -1337,7 +1337,7 @@ fn slack_bridge_config(alloc: Allocator, endpoint: []const u8, client_config: Cl
     if (!std.mem.eql(u8, endpoint, resource)) return null;
     const url = try std.fmt.allocPrint(alloc, "{s}/api/slack/install/config?flow=auth", .{origin});
     defer alloc.free(url);
-    var response = try request(alloc, .GET, url, null, null, &.{});
+    var response = try request(alloc, .GET, url, null, null, &.{}, null);
     defer response.deinit(alloc);
     if (response.status != .ok) return error.SlackBridgeUnavailable;
     try validateJsonContentType(response.content_type);
@@ -1579,6 +1579,7 @@ fn requestAutomatedAuthorization(
         null,
         null,
         &.{},
+        null,
     );
     defer response.deinit(alloc);
     if (response.status.class() != .redirect) {
@@ -1877,7 +1878,7 @@ fn discoverResourceMetadata(
 ) !ResourceMetadata {
     if (challenged_url) |url| {
         try validateOAuthUrlForResource(url, resource);
-        var response = try request(alloc, .GET, url, null, null, &.{});
+        var response = try request(alloc, .GET, url, null, null, &.{}, null);
         defer response.deinit(alloc);
         if (response.status != .ok) return error.ProtectedResourceMetadataUnavailable;
         try validateJsonContentType(response.content_type);
@@ -1887,7 +1888,7 @@ fn discoverResourceMetadata(
     const urls = try protectedResourceMetadataUrls(alloc, resource);
     defer freeStrings(alloc, urls);
     for (urls) |url| {
-        var response = request(alloc, .GET, url, null, null, &.{}) catch continue;
+        var response = request(alloc, .GET, url, null, null, &.{}, null) catch continue;
         defer response.deinit(alloc);
         if (response.status != .ok) continue;
         try validateJsonContentType(response.content_type);
@@ -1903,7 +1904,7 @@ fn discoverAuthorizationMetadata(
     const urls = try authorizationMetadataUrls(alloc, issuer);
     defer freeStrings(alloc, urls);
     for (urls) |url| {
-        var response = request(alloc, .GET, url, null, null, &.{}) catch continue;
+        var response = request(alloc, .GET, url, null, null, &.{}, null) catch continue;
         defer response.deinit(alloc);
         if (response.status != .ok) continue;
         try validateJsonContentType(response.content_type);
@@ -1979,6 +1980,7 @@ fn resolveClientRegistration(
         payload.written(),
         "application/json",
         &.{},
+        null,
     );
     defer response.deinit(alloc);
     if (response.status != .created and response.status != .ok) {
@@ -2171,6 +2173,7 @@ fn exchangeAuthorizationCode(
         form_writer.written(),
         "application/x-www-form-urlencoded",
         auth.headers(),
+        null,
     );
     defer response.deinit(alloc);
     if (response.status != .ok) return error.TokenExchangeFailed;
@@ -2251,6 +2254,7 @@ fn revokeToken(
         form_writer.written(),
         "application/x-www-form-urlencoded",
         auth.headers(),
+        null,
     );
     defer response.deinit(alloc);
     if (response.status != .ok) return error.TokenRevocationFailed;
@@ -2263,6 +2267,7 @@ fn request(
     payload: ?[]const u8,
     content_type: ?[]const u8,
     extra_headers: []const std.http.Header,
+    diagnostics: ?*RefreshDiagnostics,
 ) !HttpResponse {
     const uri = std.Uri.parse(url) catch return error.InvalidMcpAuthEndpoint;
     if (!isSecureOrLoopback(uri) or uri.user != null or
@@ -2296,6 +2301,10 @@ fn request(
         try http_request.sendBodiless();
     }
     var response = try http_request.receiveHead(&.{});
+    if (diagnostics) |value| {
+        value.stage = .response;
+        value.http_status = response.head.status;
+    }
     const location = if (response.head.location) |value|
         try alloc.dupe(u8, value)
     else
@@ -3197,6 +3206,17 @@ test "refresh diagnostics distinguish request failures from response parsing fai
     try std.testing.expectEqualStrings(
         "MCP credential refresh failed (McpRefreshRejected; stage=response; HTTP 400; OAuth invalid_grant).",
         diagnostics.failure_message(&buffer, error.McpRefreshRejected),
+    );
+    diagnostics = .{};
+    diagnostics.capture_response(std.testing.allocator, .{
+        .status = .ok,
+        .body = @constCast("{\"error\":\"invalid_grant\"}"),
+        .location = null,
+        .content_type = null,
+    });
+    try std.testing.expectEqualStrings(
+        "MCP credential refresh failed (InvalidOAuthResponse; stage=response; HTTP 200; OAuth invalid_grant).",
+        diagnostics.failure_message(&buffer, error.InvalidOAuthResponse),
     );
 }
 

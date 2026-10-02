@@ -4120,6 +4120,18 @@ describe("MCP remote authentication lifecycle", () => {
       body: JSON.stringify({ token_type: "Bearer", error_description: REFRESH_INITIAL }),
       expected: "InvalidOAuthResponse; stage=response; HTTP 200",
     },
+    {
+      name: "OAuth error in an HTTP 200 response",
+      status: 200,
+      body: JSON.stringify({ error: "invalid_grant", error_description: REFRESH_INITIAL }),
+      expected: "InvalidOAuthResponse; stage=response; HTTP 200; OAuth invalid_grant",
+    },
+    {
+      name: "oversized response",
+      status: 503,
+      body: JSON.stringify({ error: "server_error", error_description: REFRESH_INITIAL, padding: "x".repeat(256 * 1024) }),
+      expected: "McpAuthDocumentTooLarge; stage=response; HTTP 503",
+    },
   ]) test(`MCP refresh diagnostics preserve ${scenario.name} without response secrets`, async () => {
     upstream = startModernMcpHttpFixture("json");
     auth = startAuthFixture(upstream.url, { refreshResponse: scenario });
